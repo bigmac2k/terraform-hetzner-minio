@@ -1,0 +1,55 @@
+#cloud-config
+%{ if length(extra_ssh_keys) > 0 }
+ssh_authorized_keys:
+%{ for ssh_key in extra_ssh_keys }
+- ${ssh_key}
+%{ endfor }
+%{ endif }
+groups:
+  - minio-user
+users:
+  - name: minio-user
+    primary_group: minio-user
+runcmd:
+- apt-get update
+- apt-get install -y vim resolvconf jq curl
+- echo "nameserver 1.1.1.1" > /etc/resolvconf/resolv.conf.d/tail
+- echo "RateLimitIntervalSec=0" >> /etc/systemd/journald.conf
+- echo "RateLimitBurst=0" >> /etc/systemd/journald.conf
+- systemctl restart systemd-journald.service
+- systemctl start resolvconf
+- mkdir -p /data/minio
+- chown -R minio-user:minio-user /data/minio
+- curl -sSLO https://dl.min.io/server/minio/release/linux-amd64/minio_${minio-version}_amd64.deb
+- sha256sum -c minio_${minio-version}_amd64.deb.sha256sum
+- dpkg -i minio_${minio-version}_amd64.deb
+- rm minio_${minio-version}_amd64.deb*
+- curl -sSLO https://dl.min.io/client/mc/release/linux-amd64/mcli_${minio-client-version}_amd64.deb
+- sha256sum -c mcli_${minio-client-version}_amd64.deb.sha256sum
+- dpkg -i mcli_${minio-client-version}_amd64.deb
+- rm mcli_${minio-client-version}_amd64.deb*
+- systemctl enable minio.service
+- systemctl start --no-block minio.service
+write_files:
+- path: /minio_${minio-version}_amd64.deb.sha256sum
+  permissions: "0600"
+  owner: root:root
+  content: |
+    ${minio-sha} minio_${minio-version}_amd64.deb
+- path: /mcli_${minio-client-version}_amd64.deb.sha256sum
+  permissions: "0600"
+  owner: root:root
+  content: |
+    ${minio-client-sha} mcli_${minio-client-version}_amd64.deb
+- path: /etc/default/minio
+  permissions: "0600"
+  owner: root:root
+  content: |
+    # Volume to be used for MinIO server.
+    MINIO_VOLUMES="/data/minio/"
+    # Use if you want to run MinIO on a custom port.
+    MINIO_OPTS="${minio-opts}"
+    # Root user for the server.
+    MINIO_ROOT_USER="${minio-user}"
+    # Root secret for the server.
+    MINIO_ROOT_PASSWORD="${minio-pass}"
